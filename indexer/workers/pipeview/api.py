@@ -6,10 +6,12 @@ import argparse
 import datetime as dt
 import logging
 import os
+from typing import Annotated
 
 # PyPI:
 import uvicorn
 from fastapi import FastAPI, Query
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.ext.asyncio.session import async_sessionmaker
@@ -64,46 +66,55 @@ pvapp = PipeViewAPI("pipeview-api", "PipeView API Server")
 #        return StreamingReponse(generator(results), media_type="application/x-ndjson")
 
 
+class SumParams(BaseModel):
+    """
+    Pydantic model is necessary to forbid extra params:
+    """
+
+    model_config = {"extra": "forbid"}
+
+    col: list[CrumbKey] = []
+    # filters
+    source_id: int | None = None
+    feed_id: int | None = None
+    domain: str | None = None
+    app: str | None = None
+    status: str | None = None
+    start_date: dt.date | None = None
+    end_date: dt.date | None = None
+
+
 @app.get("/sum/")
 async def sum(
-    col: list[CrumbKey] = Query(default=[]),
-    # filters
-    source_id: int | None = Query(None),
-    feed_id: int | None = Query(None),
-    domain: str | None = Query(None),
-    app: str | None = Query(None),
-    status: str | None = Query(None),
-    start_date: dt.date | None = Query(None),
-    end_date: dt.date | None = Query(None),
-    # pagination (requires ordered results!!)
-    # skip: int = Query(0),
-    # limit: int = Query(1000),
+    params: Annotated[SumParams, Query()],
 ) -> list[dict[str, int | str | None]]:
-    columns = [getattr(Crumb, c) for c in col]
+
+    columns = [getattr(Crumb, c) for c in params.col]
     query = select(*columns, func.sum(Crumb.count), func.count(Crumb.id))
 
     # default start date to day range kept by pruner
     # (ignore dead feeds from the deep past)
     # if you want ALL dates, pass start_date=2000-01-01
+    start_date = params.start_date
     if start_date is None and PIPEVIEW_DAYS and PIPEVIEW_DAYS.isdigit():
         start_date = dt.datetime.utcnow().date() - dt.timedelta(days=int(PIPEVIEW_DAYS))
 
     # apply filters
-    if source_id is not None:
-        query = query.where(Crumb.source_id == source_id)
-    if feed_id is not None:
-        query = query.where(Crumb.feed_id == feed_id)
-    if domain is not None:
+    if params.source_id is not None:
+        query = query.where(Crumb.source_id == params.source_id)
+    if params.feed_id is not None:
+        query = query.where(Crumb.feed_id == params.feed_id)
+    if params.domain is not None:
         # treat empty string as NULL
-        query = query.where(Crumb.domain == (domain or None))
-    if app is not None:
-        query = query.where(Crumb.app == app)
-    if status is not None:
-        query = query.where(Crumb.status == status)
-    if start_date is not None:
-        query = query.where(Crumb.date >= start_date.isoformat())
-    if end_date is not None:
-        query = query.where(Crumb.date <= end_date.isoformat())
+        query = query.where(Crumb.domain == (params.domain or None))
+    if params.app is not None:
+        query = query.where(Crumb.app == params.app)
+    if params.status is not None:
+        query = query.where(Crumb.status == params.status)
+    if params.start_date is not None:
+        query = query.where(Crumb.date >= params.start_date.isoformat())
+    if params.end_date is not None:
+        query = query.where(Crumb.date <= params.end_date.isoformat())
 
     query = query.group_by(*columns)
     # need order_by if paginating
