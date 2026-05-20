@@ -1,7 +1,7 @@
 # Media Cloud story-indexer metadata
 
 The key job of the story-indexer is to extract, augment, and archive online news stories. To accomplish
-these tasks the story-indexer creates a number of metadata fields, persisted in different ways and at 
+these tasks the story-indexer creates a number of metadata fields, persisted in different ways and at
 different times. These include:
 * `Story` objects used internally to manage data for workflow queues
 * Elasticsearch storage fields
@@ -101,8 +101,9 @@ The Story title (if any), extracted from original RSS or Sitemap page
 
 ##### domain (str)
 
-Media Cloud "canonical domain" extracted using mcmetadata library
-by rss-fetcher (forensic).
+Media Cloud "canonical domain" extracted using mcmetadata library by
+rss-fetcher (forensic, used to tally stories in `pipeview` for stories
+that exit the pipeline before the story has been fetched and parsed).
 
 ##### pub_date (str)
 
@@ -123,12 +124,12 @@ The URL of the page the story URL was extracted from, if any
 ##### source_feed_id (int)
 
 The Media Cloud id of the feed the story URL was extracted from, if any
-(forensic).
+(forensic, used to tally stories in `pipeview`).
 
 ##### source_source_id (int)
 
 The Media Cloud source id associated with the feed the story URL was
-extracted from, if any (forensic).
+extracted from, if any (forensic, used to tally stories in `pipeview`).
 
 ##### via (str)
 
@@ -199,7 +200,7 @@ Extracted text.
 
 ##### parsed_date (str)
 
-Populated by Parser (not mcmetadata), 
+Populated by Parser (not mcmetadata),
 despite the name, is UTC date-time (YYYY-MM-DD hh:mm:ss.uuuuuu
 
 Importer stores in Elasticsearch as `indexed_date`; If not available,
@@ -258,7 +259,10 @@ thereafter.
 
 #### queue-fetcher
 
-(normal production)
+Normal production deployment. Stack named `indexer` for production,
+`staging-indexer` for staging, `USER-indexer` for developers.
+
+indexer pipeline order:
 
 1. `workers/fetcher/rss-puller.py` periodically to fetch new stories using the `rss-fetcher` API as a Queuer
 2. `workers/fetcher/tqfetcher.py` (threaded queue fetcher) to continuously fetch queued stories using threads for parallelism
@@ -279,6 +283,10 @@ All `http_metadata` fields are used as intended.
 Used to read raw HTML from the cloud storage "downloads-backup" bucket
 of the old Media Cloud system, using CSV files dumped from the old
 PostgreSQL database to provide metadata.
+
+Production historical pipeline stack name is `hist-indexer`
+
+Pipeline order:
 
 1. `workers/fetcher/hist-queuer.py` reading CSV files from cloud storage
 2. `workers/fetcher/hist-fetcher.py` fetching HTML from cloud storage
@@ -335,6 +343,10 @@ Reads CSVs of URLs to fetch.  The original CSVs were prepared by blind
 fetching objects from the old system cloud storage archive, looking
 for RSS files, and extracting story URLs.
 
+Production stack name is `csv-indexer`
+
+Pipeline order:
+
 1. `workers/fetcher/csv-queuer.py` reads CSV files from cloud storage
 2. `workers/fetcher/tqfetcher.py`
 3. `workers/parser.py`
@@ -362,6 +374,10 @@ re-imports them for recovery (this was done for the first reindexing
 in the early months of the new system).  No new archives are written.
 Stories are imported using original "parsed date".
 
+Production archive stack name is `arch-indexer`:
+
+Pipeline order:
+
 1. `workers/fetcher/arch-queuer.py` reads WARC files using `StoryArchiveReader`
 2. `workers/importer.py`
 
@@ -381,7 +397,9 @@ fetch the HTML.  Ran until all stories fetched or (limited) retries exhausted.
 Was replaced by `tqfetcher` which allows longer retries, and better
 ability to catch up after story-indexer downtime.
 
-1. `workers/fetcher/fetch-worker.py`
+Pipeline order was:
+
+1. `workers/fetcher/fetch-worker.py` (reading RSS file)
 2. `workers/parser.py`
 3. `workers/importer.py`
 4. `workers/archiver.py`
